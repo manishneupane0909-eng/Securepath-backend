@@ -1,3 +1,4 @@
+# manage.py - Updated to use environment-based settings
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
 import os
@@ -6,7 +7,14 @@ import sys
 
 def main():
     """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
+    # Determine which settings to use based on environment
+    environment = os.getenv('DJANGO_ENV', 'development')
+    
+    if environment == 'production':
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings_prod')
+    else:
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings_dev')
+    
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

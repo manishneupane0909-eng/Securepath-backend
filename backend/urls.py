@@ -1,12 +1,14 @@
-from django.contrib import admin   # 👈 this import is required
-from django.urls import path, include
-from django.http import JsonResponse
+# backend/urls.py - Updated with API versioning
+from django.contrib import admin
+from django.urls import path
+from ninja import NinjaAPI
+from api.router_v1 import router as router_v1
 
-def root_view(request):
-    return JsonResponse({"message": "Welcome to SecurePath API. Use /api/ for endpoints."})
+# Create versioned API instance
+api_v1 = NinjaAPI(version='1.0.0', title='SecurePath API', description='Fraud Detection System API')
+api_v1.add_router("/", router_v1)
 
 urlpatterns = [
-    path('', root_view),
     path('admin/', admin.site.urls),
-    path('api/', include('api.urls')),
+    path('api/', api_v1.urls),  # Main API endpoint (supports both /api/ and /api/v1/ via router)
 ]

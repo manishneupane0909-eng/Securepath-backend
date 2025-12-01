@@ -1,9 +1,10 @@
+# api/urls.py
 from django.urls import path
-from . import views
+from ninja import NinjaAPI
+from .router import router
+from .auth import auth_bearer
 
-urlpatterns = [
-    path('', views.index, name='index'),
-    path('status/', views.status_check, name='status'),
-    path('upload/', views.upload_csv_view, name='upload-csv'),
-    path('train-model/', views.train_model, name='train-model'),
-]
+api = NinjaAPI(csrf=False, auth=None)
+api.add_router("", router)
+
+urlpatterns = [path("", api.urls)]

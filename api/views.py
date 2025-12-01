@@ -1,217 +1,152 @@
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import api_view, parser_classes
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.response import Response
-from rest_framework import status
+# api/views.py - FRONTEND INTEGRATION VERSION
+from ninja import NinjaAPI, UploadedFile
+from django.http import HttpResponse
+from django.utils import timezone
+from django.db.models import Count, Sum, Q
 import pandas as pd
-import numpy as np
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-import lightgbm as lgb
+import io
+import time
+import csv
+
+from .models import Transaction
+
+api = NinjaAPI(title="SecurePath FRDS API", version="1.0.0", auth=None)
 
 
-@api_view(['GET'])
-def index(request):
-    """API Overview"""
-    return Response({
-        'message': 'Welcome to Fraud Detection API',
-        'version': '1.0',
-        'status': 'active',
-        'endpoints': {
-            'GET /api/': 'API Overview',
-            'GET /api/status/': 'Check API Status',
-            'POST /api/upload/': 'Upload CSV',
-            'POST /api/train-model/': 'Train Fraud Detection Model',
-        }
-    })
-
-
-@api_view(['GET'])
-def status_check(request):
-    """Check API status"""
-    return Response({
-        'status': 'success',
-        'message': 'Fraud Detection API is running',
-        'version': '1.0'
-    })
-
-
-@csrf_exempt
-@api_view(['POST'])
-@parser_classes([MultiPartParser, FormParser])
-def upload_csv_view(request):
-    """Upload CSV file"""
-    print("=" * 50)
-    print("REQUEST RECEIVED")
-    print("METHOD:", request.method)
-    print("Content-Type:", request.META.get('CONTENT_TYPE'))
-    print("Available file keys:", list(request.FILES.keys()))
-    print("FILES:", request.FILES)
-    print("=" * 50)
-
+# --- 1. UPLOAD ENDPOINT (Matches CsvUpload.js) ---
+@api.post("/upload")
+def upload_csv(request, file: UploadedFile):
+    start = time.time()
     try:
-        # Check if file exists in request
-        if not request.FILES:
-            return Response(
-                {
-                    'error': 'No file uploaded',
-                    'details': 'Please upload a file using multipart/form-data with field name "file"'
-                },
-                status=status.HTTP_400_BAD_REQUEST
+        content = file.read().decode('utf-8', errors='ignore')
+        df = pd.read_csv(io.StringIO(content), dtype=str)
+        df = df.fillna('').astype(str)
+
+        if df.empty:
+            return {"status": "success", "records_uploaded": 0, "message": "Empty file"}
+
+        total_rows = len(df)
+        created = 0
+        base_time = int(time.time())
+
+        for idx, row in df.iterrows():
+            unique_id = f"TXN_{base_time}_{idx}_{abs(hash(str(row.to_list()) + file.name)) & 0xFFFFFF}"
+
+            if Transaction.objects.filter(transaction_id=unique_id).exists():
+                continue
+
+            try:
+                amount_str = ''.join(filter(lambda x: x.isdigit() or x in '.,', str(row.get('amount', '') or '')))
+                amount_val = float(amount_str.replace(',', '')) if amount_str else 0.0
+            except:
+                amount_val = 0.0
+
+            date_val = timezone.now()
+            try:
+                date_str = str(row.get('date', '') or row.get('timestamp', '') or '')
+                if date_str:
+                    parsed = pd.to_datetime(date_str, errors='coerce')
+                    if not pd.isna(parsed):
+                        date_val = parsed
+            except:
+                pass
+
+            merchant = str(row.get('merchant', '') or row.get('description', '') or 'Unknown Merchant')[:200]
+            card = str(row.get('card', '') or row.get('card_number', '') or '****0000')[:19]
+            country = str(row.get('country', '') or 'XX').upper()[:2]
+
+            Transaction.objects.create(
+                transaction_id=unique_id,
+                amount=amount_val,
+                date=date_val,
+                merchant=merchant,
+                card_number=card,
+                ip_address='0.0.0.0',
+                device_id='UPLOADED',
+                country=country,
+                currency='USD',
+                status='pending',
+                is_fraud=False
             )
+            created += 1
 
-        if 'file' not in request.FILES:
-            available_keys = list(request.FILES.keys())
-            return Response(
-                {
-                    'error': 'No file with key "file" found',
-                    'details': f'Available keys: {available_keys}. Please use field name "file"',
-                    'hint': 'In Insomnia: Use Multipart Form, field name must be "file", type must be File'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        csv_file = request.FILES['file']
-        print(f"✓ File received: {csv_file.name}, Size: {csv_file.size} bytes")
-
-        # Validate file type
-        if not csv_file.name.endswith('.csv'):
-            return Response(
-                {
-                    'error': 'Invalid file type',
-                    'details': f'File "{csv_file.name}" is not a CSV file. Please upload a .csv file'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Read CSV
-        print("Reading CSV...")
-        df = pd.read_csv(csv_file)
-        print(f"✓ CSV read successfully: {len(df)} rows, {len(df.columns)} columns")
-
-        return Response({
-            'status': 'success',
-            'message': 'CSV uploaded successfully',
-            'file_info': {
-                'filename': csv_file.name,
-                'size': csv_file.size,
-                'rows': len(df),
-                'columns': len(df.columns),
-                'column_names': list(df.columns),
-                'data_types': df.dtypes.astype(str).to_dict(),
-                'missing_values': df.isnull().sum().to_dict(),
-                'sample_data': df.head(3).to_dict('records')
-            }
-        }, status=status.HTTP_200_OK)
-
-    except pd.errors.EmptyDataError:
-        print("✗ ERROR: CSV file is empty")
-        return Response(
-            {'error': 'CSV file is empty'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    except pd.errors.ParserError as e:
-        print(f"✗ ERROR: CSV parsing error: {str(e)}")
-        return Response(
-            {'error': f'Invalid CSV format: {str(e)}'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    except Exception as e:
-        print(f"✗ EXCEPTION: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return Response(
-            {'error': f'Error processing file: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-@csrf_exempt
-@api_view(['POST'])
-@parser_classes([MultiPartParser, FormParser])
-def train_model(request):
-    """Upload CSV and train fraud detection model"""
-    print("=" * 50)
-    print("TRAIN MODEL REQUEST RECEIVED")
-    print("Content-Type:", request.META.get('CONTENT_TYPE'))
-    print("Available file keys:", list(request.FILES.keys()))
-    print("=" * 50)
-
-    try:
-        # Check if file exists
-        if not request.FILES:
-            return Response(
-                {
-                    'error': 'No file uploaded',
-                    'details': 'Please upload a CSV file using multipart/form-data with field name "file"'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if 'file' not in request.FILES:
-            available_keys = list(request.FILES.keys())
-            return Response(
-                {
-                    'error': 'No file with key "file" found',
-                    'details': f'Available keys: {available_keys}. Please use field name "file"'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        csv_file = request.FILES['file']
-        print(f"✓ Training with file: {csv_file.name}")
-
-        # Validate file type
-        if not csv_file.name.endswith('.csv'):
-            return Response(
-                {'error': f'Invalid file type. Expected .csv, got {csv_file.name}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Read CSV
-        df = pd.read_csv(csv_file)
-        print(f"✓ Data loaded: {len(df)} rows, {len(df.columns)} columns")
-
-        # Basic data validation
-        if len(df) == 0:
-            return Response(
-                {'error': 'CSV file is empty'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        info = {
-            'status': 'success',
-            'message': 'CSV file uploaded successfully',
-            'data_info': {
-                'total_rows': len(df),
-                'total_columns': len(df.columns),
-                'columns': list(df.columns),
-                'data_types': df.dtypes.astype(str).to_dict(),
-                'missing_values': df.isnull().sum().to_dict(),
-                'sample_data': df.head(5).to_dict('records')
-            }
+        return {
+            "status": "success",
+            "records_uploaded": created,
+            "message": f"Uploaded {created} records"
         }
 
-        return Response(info, status=status.HTTP_200_OK)
-
-    except pd.errors.EmptyDataError:
-        print("✗ ERROR: CSV file is empty")
-        return Response(
-            {'error': 'CSV file is empty'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    except pd.errors.ParserError as e:
-        print(f"✗ ERROR: CSV parsing error: {str(e)}")
-        return Response(
-            {'error': f'Invalid CSV format: {str(e)}'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
     except Exception as e:
-        print(f"✗ EXCEPTION: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return Response(
-            {'error': f'Error processing file: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return {"status": "error", "message": f"Error: {str(e)}"}
+
+
+# --- 2. DETECT ENDPOINT (Matches CsvUpload.js logic) ---
+@api.post("/detect-fraud")
+def detect_fraud(request):
+    pending = Transaction.objects.filter(status='pending')
+    flagged = 0
+    updates = []
+
+    for t in pending:
+        score = 0.0
+        # STRICT RULES (High Sensitivity)
+        if t.amount > 10: score += 0.5
+        if t.country in ['CN', 'RU', 'NG', 'BR', 'XX']: score += 0.4
+        if 'UPLOADED' in t.device_id: score += 0.1
+
+        t.fraud_score = min(score, 1.0)
+        t.is_fraud = score >= 0.6
+
+        if t.is_fraud:
+            flagged += 1
+
+        updates.append(t)
+
+    if updates:
+        Transaction.objects.bulk_update(updates, ['fraud_score', 'is_fraud'])
+
+    return {
+        "status": "success",
+        "flagged": flagged,
+        "processed": len(updates),
+        "message": "Analysis Complete"
+    }
+
+
+# --- 3. NEW TRANSACTION LIST ENDPOINT (Matches App.js) ---
+@api.get("/transactions")
+def list_transactions(request):
+    # We limit to top 500 riskiest/newest to prevent browser crash
+    # Your frontend expects "risk_score" (0-100), but we have "fraud_score" (0.0-1.0)
+
+    txns = Transaction.objects.all().order_by('-is_fraud', '-fraud_score', '-date')[:500]
+
+    results = []
+    for t in txns:
+        results.append({
+            "id": t.transaction_id,
+            "transaction_id": t.transaction_id,
+            "merchant": t.merchant,
+            "amount": t.amount,
+            "date": t.date.strftime("%Y-%m-%d %H:%M"),
+            "country": t.country,
+
+            # CRITICAL: Convert 0.9 -> 90 so your Dashboard turns RED
+            "risk_score": int(t.fraud_score * 100),
+
+            "status": "Review Needed" if t.is_fraud else "Approved",
+            "is_fraud": t.is_fraud
+        })
+
+    return results
+
+
+# --- 4. DASHBOARD STATS (Matches Dashboard.js logic) ---
+@api.get("/dashboard/stats")
+def stats(request):
+    total = Transaction.objects.count()
+    fraud = Transaction.objects.filter(is_fraud=True).count()
+    return {
+        "total_transactions": total,
+        "fraud_detected": fraud
+    }
