@@ -1,4 +1,14 @@
-# SecurePath - Fraud Detection System
+# ⚠️ This repository has been consolidated
+
+**This backend-only repo is deprecated. The project has been moved to a monorepo structure.**
+
+👉 **Go to the main repository:** [securepath](https://github.com/manishneupane0909-eng/securepath)
+
+The main repo contains both the backend and frontend in a single repository for easier development and deployment.
+
+---
+
+# SecurePath - Fraud Detection System (Backend)
 
 A comprehensive fraud detection system built with Django (backend) and React (frontend), featuring real-time transaction monitoring, ML-based risk scoring, and automated fraud detection.
 
@@ -28,7 +38,9 @@ A comprehensive fraud detection system built with Django (backend) and React (fr
 #### Backend Setup
 
 ```bash
-cd securepath-backend
+# Clone the main repository (not this one)
+git clone https://github.com/manishneupane0909-eng/securepath.git
+cd securepath/backend
 
 # Create virtual environment
 python -m venv venv
@@ -37,248 +49,94 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy environment file
+# Set up environment variables
 cp .env.example .env
 # Edit .env with your configuration
 
 # Run migrations
-python manage.py makemigrations
 python manage.py migrate
 
 # Create superuser (optional)
 python manage.py createsuperuser
 
-# Run development server
+# Start development server
 python manage.py runserver
 ```
 
 #### Frontend Setup
 
 ```bash
-cd securepath-dashboard
+# From the main repository root
+cd securepath/frontend
 
 # Install dependencies
 npm install
 
-# Copy environment file
+# Set up environment variables
 cp .env.example .env.local
-# Edit .env.local with your configuration
+# Edit .env.local with your API endpoint
 
 # Start development server
 npm start
 ```
 
-#### Start Celery Worker (Optional)
-
-```bash
-cd securepath-backend
-
-# Start Redis (if not running)
-redis-server
-
-# Start Celery worker
-celery -A backend worker -l info
-```
-
 ### Option 2: Docker Setup
 
 ```bash
-# From the root directory containing both projects
-docker-compose up --build
-```
+# From the main repository root
+cd securepath
 
-This will start:
-- PostgreSQL database on port 5432
-- Redis on port 6379
-- Django backend on port 8000
-- Celery worker
-- React frontend on port 3000
+# Build and start containers
+docker-compose up --build
+
+# The backend will be available at http://localhost:8000
+# The frontend will be available at http://localhost:3000
+```
 
 ## 🔧 Configuration
 
 ### Backend Environment Variables
 
-Create a `.env` file in `securepath-backend/`:
+Create a `.env` file in the `backend/` directory:
 
 ```env
 SECRET_KEY=your-secret-key-here
 DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Database
-DB_ENGINE=django.db.backends.postgresql
-DB_NAME=securepath_db
-DB_USER=your_db_user
-DB_PASSWORD=your_password
-DB_HOST=localhost
-DB_PORT=5432
-
-# API
-API_TOKEN=your-secure-token
-
-# Celery
-CELERY_BROKER_URL=redis://localhost:6379/0
+DATABASE_URL=postgresql://user:password@localhost:5432/securepath
+REDIS_URL=redis://localhost:6379/0
+PLAID_CLIENT_ID=your-plaid-client-id
+PLAID_SECRET=your-plaid-secret
+PLAID_ENV=sandbox
+API_TOKEN=your-api-token-for-auth
 ```
 
 ### Frontend Environment Variables
 
-Create a `.env.local` file in `securepath-dashboard/`:
+Create a `.env.local` file in the `frontend/` directory:
 
 ```env
-REACT_APP_API_BASE_URL=http://localhost:8000/api
-REACT_APP_API_TOKEN=your-secure-token
+REACT_APP_API_URL=http://localhost:8000/api/v1
+REACT_APP_PLAID_PUBLIC_KEY=your-plaid-public-key
 ```
 
 ## 📚 API Documentation
 
-### Authentication
-
-All API endpoints (except `/status`) require Bearer token authentication:
-
-```bash
-Authorization: Bearer your-token-here
-```
-
-### Key Endpoints
-
-- `GET /api/v1/status` - Health check
-- `GET /api/v1/dashboard/stats` - Get dashboard statistics
-- `GET /api/v1/dashboard/transactions` - Get paginated transactions
-- `POST /api/v1/upload` - Upload transaction CSV file
-- `POST /api/v1/detect-fraud` - Run fraud detection
-- `GET /api/v1/audit-log` - Get audit logs
-- `GET /api/v1/export/{type}` - Export reports (csv/pdf)
+Once the backend is running, API documentation is available at:
+- Swagger UI: `http://localhost:8000/api/docs/`
+- ReDoc: `http://localhost:8000/api/redoc/`
 
 ## 🧪 Testing
 
-### Backend Tests
-
 ```bash
-cd securepath-backend
-
-# Run all tests
+# Backend tests
+cd backend
 pytest
 
-# Run with coverage
-pytest --cov=api --cov-report=html
-
-# Run specific test file
-pytest api/tests/test_models.py
-```
-
-### Frontend Tests
-
-```bash
-cd securepath-dashboard
-
-# Run tests
+# Frontend tests
+cd frontend
 npm test
-
-# Run with coverage
-npm test -- --coverage
 ```
-
-## 🎨 Code Quality
-
-### Backend
-
-```bash
-# Format code
-black .
-
-# Sort imports
-isort .
-
-# Lint code
-flake8 .
-```
-
-### Frontend
-
-```bash
-# Lint code
-npm run lint
-
-# Format code (if configured)
-npm run format
-```
-
-## 📦 Deployment
-
-### Production Checklist
-
-- [ ] Set `DEBUG=False` in backend settings
-- [ ] Use PostgreSQL instead of SQLite
-- [ ] Configure proper `SECRET_KEY`
-- [ ] Set up HTTPS/SSL
-- [ ] Configure CORS for production domains
-- [ ] Set up proper logging
-- [ ] Configure email backend
-- [ ] Set up monitoring (Sentry, etc.)
-- [ ] Configure backup strategy
-- [ ] Set up CI/CD pipeline
-
-### Using Docker in Production
-
-```bash
-# Build production images
-docker-compose -f docker-compose.prod.yml build
-
-# Start services
-docker-compose -f docker-compose.prod.yml up -d
-
-# Run migrations
-docker-compose exec backend python manage.py migrate
-
-# Collect static files
-docker-compose exec backend python manage.py collectstatic --noinput
-```
-
-## 🔐 Security
-
-- API authentication using Bearer tokens
-- Rate limiting on all endpoints
-- CSRF protection enabled
-- SQL injection protection via Django ORM
-- XSS protection with React
-- Environment-based configuration
-- Secure password hashing
-
-## 📊 Database Migrations
-
-```bash
-# Create new migration
-python manage.py makemigrations
-
-# Apply migrations
-python manage.py migrate
-
-# Show migrations
-python manage.py showmigrations
-
-# Rollback migration
-python manage.py migrate api 0001_initial
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## 📝 License
 
-This project is licensed under the MIT License.
-
-## 👥 Authors
-
-- Your Name - Initial work
-
-## 🙏 Acknowledgments
-
-- Django framework
-- React and Create React App
-- Lucide React for icons
-- TailwindCSS for styling
+This project is for educational purposes.
